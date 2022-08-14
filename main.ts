@@ -76,17 +76,18 @@ export class ExampleModal extends SuggestModal<any> {
   }
 
   renderSuggestion(item: any, el: HTMLElement) {
-    this.name = item?.title || item?.name
-    this.date = item?.release_date || item?.first_air_date
-    this.img =
-      this.overview = item?.overview.substring(0, this.plugin.settings.overview_length) || ''
-    el.createEl("div", { text: `${this.name} - ${this.date}` });
-    el.createEl("small", { text: this.overview });
+    const name = item?.title || item?.name
+    const date = item?.release_date || item?.first_air_date
+    const overview = item?.overview.substring(0, this.plugin.settings.overview_length) || ''
+    el.createEl("div", { text: `${name} - ${date}` });
+    el.createEl("small", { text: overview });
 
   }
 
   async onChooseSuggestion(item: any, evt: MouseEvent | KeyboardEvent) {
     let saved: any, filedata:any
+    const name = item?.title || item?.name
+    const date = item?.release_date || item?.first_air_date
     const active_view =
       this.app.workspace.getActiveViewOfType(MarkdownView);
 
@@ -104,10 +105,13 @@ export class ExampleModal extends SuggestModal<any> {
       const time = new Date()
       active_view?.editor.replaceRange(`
 ---
-title: ${this.name}
+title: ${name}
 date: ${time.getFullYear()}-${time.getMonth() + 1}-${time.getDate()}
 tags:
-year: ${this.date}
+year: ${date}
+type: ${item.media_type}
+status: 
+ep: 
 cover: "![[${item?.poster_path.substr(1)}|80]]"
 summary: ${item.overview.replaceAll('\n', '')}
 ---    
