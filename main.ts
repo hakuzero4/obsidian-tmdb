@@ -1,137 +1,173 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, SuggestModal } from 'obsidian';
 // Remember to rename these classes and interfaces!
+import axios from "axios";
 
-interface MyPluginSettings {
-	mySetting: string;
+interface themoviedbSettings {
+  apiKey: string;
+  original_language: string;
+  language: string;
+  overview_length: number;
+  folder_location: string;
+}
+// 默认值
+const DEFAULT_SETTINGS: themoviedbSettings = {
+  apiKey: '',
+  original_language: '',
+  language: 'zh',
+  overview_length: 10,
+  folder_location: '',
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
 
 export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  settings: themoviedbSettings;
 
-	async onload() {
-		await this.loadSettings();
+  async onload() {
+    await this.loadSettings();
+    this.addCommand({
+      id: 'search Tv',
+      name: '生成tmdb数据',
+      checkCallback: (checking: boolean) => {
+        const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (markdownView) {
+          if (!checking) {
+            new ExampleModal(this.app, this).open();
+          }
+          return true;
+        }
+      },
+    })
+    this.addSettingTab(new SampleSettingTab(this.app, this));
+  }
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+  onunload() {
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+  }
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
-
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
 }
+export class ExampleModal extends SuggestModal<any> {
+  plugin: MyPlugin;
+  name: string;
+  overview: string
+  date: string
+  img: string
+  constructor(app: App, plugin: MyPlugin) {
+    super(app);
+    this.plugin = plugin
+  }
+  async getSuggestions(query: string) {
+    if (!query) {
+      return [];
+    }
+    const url = `https://api.themoviedb.org/3/search/multi?api_key=${this.plugin.settings.apiKey}&language=${this.plugin.settings.language}&query=${query.toLocaleLowerCase()}`
+    // const response = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=0f8506aab0fa109a7e1472f48f557e98&language=zh&query=${query.toLocaleLowerCase()}`)
+    const response = await fetch(url)
+    const result = await response.json()
+    return result.results.filter((d: any) => {
+      return d.media_type == 'tv' || d.media_type == 'movie'
+    })
+  }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+  renderSuggestion(item: any, el: HTMLElement) {
+    this.name = item?.title || item?.name
+    this.date = item?.release_date || item?.first_air_date
+    this.img =
+      this.overview = item?.overview.substring(0, this.plugin.settings.overview_length) || ''
+    el.createEl("div", { text: `${this.name} - ${this.date}` });
+    el.createEl("small", { text: this.overview });
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+  }
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
+  async onChooseSuggestion(item: any, evt: MouseEvent | KeyboardEvent) {
+    let saved: any, filedata:any
+    const active_view =
+      this.app.workspace.getActiveViewOfType(MarkdownView);
+
+
+    // this.app.vault.adapter.list(this.app.vault.configDir).then(x=>console.log(x))
+    try {
+      if (item.poster_path) {
+        filedata = await this.downloadImage(`https://image.tmdb.org/t/p/w500/${item.poster_path}`)
+        saved = await this.app.vault.createBinary(`${this.plugin.settings.folder_location}${item.poster_path}`, filedata)
+      }
+
+    } catch (e) {
+      console.log(e)
+    } finally {
+      const time = new Date()
+      active_view?.editor.replaceRange(`
+---
+title: ${this.name}
+date: ${time.getFullYear()}-${time.getMonth() + 1}-${time.getDate()}
+tags:
+year: ${this.date}
+cover: "![[${item?.poster_path.substr(1)}|80]]"
+summary: ${item.overview.replaceAll('\n', '')}
+---    
+`, {
+        line: 0,
+        ch: 0
+      })
+    }
+
+
+  }
+  async downloadImage(url: string) {
+    const res = await axios(url, { method: 'get', responseType: "arraybuffer" })
+    return res.data
+  }
 }
-
+// 插件设置页面
 class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+  plugin: MyPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+  constructor(app: App, plugin: MyPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
 
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					console.log('Secret: ' + value);
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl('h2', { text: '设置themoviedb' });
+    new Setting(containerEl)
+      .setName('Api Key')
+      .setDesc('输入申请的api key')
+      .addText(text => text
+        .setPlaceholder('Enter your secret')
+        .setValue(this.plugin.settings.apiKey)
+        .onChange(async (value) => {
+          console.log('Secret: ' + value);
+          this.plugin.settings.apiKey = value;
+          await this.plugin.saveSettings();
+        }));
+    new Setting(containerEl)
+      .setName('语言')
+      .setDesc('输入需要显示的语言')
+      .addText(text => text
+        .setPlaceholder('输入显示语言的')
+        .setValue(this.plugin.settings.language)
+        .onChange(async (value) => {
+          console.log('Secret: ' + value);
+          this.plugin.settings.language = value;
+          await this.plugin.saveSettings();
+        }));
+    new Setting(containerEl)
+      .setName('保存路径')
+      .setDesc('设置封面保存纹路')
+      .addText(text => text
+        .setPlaceholder('设置封面保存纹路')
+        .setValue(this.plugin.settings.folder_location)
+        .onChange(async (value) => {
+          this.plugin.settings.folder_location = value;
+          await this.plugin.saveSettings();
+        }));
+  }
 }
